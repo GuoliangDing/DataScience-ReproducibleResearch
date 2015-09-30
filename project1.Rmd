@@ -1,0 +1,140 @@
+---
+title: "Reproducible Research Project 1"
+author: "Guoliang Ding"
+date: "September 29, 2015"
+output: html_document
+---
+
+# Load and process the data
+```{r, warning=FALSE, message=FALSE}
+library(dplyr)
+library(ggplot2)
+library(scales)
+library(lubridate)
+library(reshape2)
+```
+
+```{r}
+setwd("~/RLearning/ReproducibleResearch")
+data <- read.csv(file = "activity.csv", stringsAsFactors = FALSE)
+
+# change the date to Date object
+# create a new column to show day of week
+# create a new column to show type of day (weekday or weekends)
+data <- mutate(data, date = as.Date(date),             
+               day_of_week = wday(date, label = TRUE), 
+               day_type = as.factor(ifelse(day_of_week %in% c("Sat", "Sun"), "Weekend", "Weekday"))
+               )
+
+
+# change the interval to the according time in the day
+
+char <- sprintf("%04d", data$interval)
+## POSIXct object must have date and time.
+## There is no date specified here so it will take the today as the date
+time <- as.POSIXct(strptime(char, format = "%H%M"))
+data <- mutate(data, time = time)
+
+# have a look at the data
+head(data)
+```
+
+# Analyze the data
+## Plot total number of steps per day
+```{r, out.width = '1000px', out.height = '600px'}
+sum1 <- data %>% 
+    group_by(date, day_of_week) %>%
+    summarise(total_steps = sum(steps, na.rm = TRUE))
+
+head(sum1)
+
+day_limit <- as.Date(c("2012-10-03", "2012-11-28"))
+
+# plot the average steps on each day
+plot1 <- ggplot(data = sum1, aes(x = date, y = total_steps)) + 
+    geom_bar(stat = "identity", aes(fill = day_of_week)) +
+    scale_x_date(breaks = date_breaks(width = "2 day"), limits = day_limit) +
+    theme(axis.text.x = element_text(angle = 90, size = 8))
+
+plot1
+```
+
+## Analysize the daily activity pattern
+
+```{r, out.width = '1000px', out.height = '600px'}
+# group the data by time and then summarize accordingly
+sum2 <- data %>%
+    group_by(time) %>%
+    summarise(average_steps = mean(steps, na.rm = TRUE))
+head(sum2)
+
+
+# plot the steps on each time
+plot2 <- ggplot(data = sum2, aes(x = time, y = average_steps)) + 
+    geom_line() + 
+    scale_x_datetime(breaks = date_breaks(width = "1 hour")) + 
+    theme(axis.text.x = element_text(angle = 90))
+
+plot2 
+```
+
+## Impute missing values
+The statergy applied here is to use the mean for that 5-minute interval to replace NA
+```{r}
+# calculate the mean steps for each interval
+sum_interval <- data %>%
+    group_by(interval) %>%
+    summarise(average_steps = mean(steps, na.rm = TRUE))
+head(sum_interval)
+
+# create a vector containing the average steps at the interval across all the days
+#   match(a,b) will return a vector the same length of a, with each element
+#   to be the position of the a's element in vector b
+imputed <- sum_interval$average_steps[match(data$interval, sum_interval$interval)]
+
+
+# impute the data 
+data2 <- mutate(data, imputed_steps = ifelse(is.na(data$steps), imputed, data$steps))
+head(data2)
+```
+
+## Plot the imputed total number of steps per day and compare
+```{r, out.width = '1000px', out.height = '600px'}
+sum4 <- data2 %>% 
+    group_by(date, day_of_week) %>%
+    summarise(imputed_steps = sum(imputed_steps, na.rm = TRUE), original_steps = sum(steps, na.rm = TRUE))
+head(sum4)
+
+long_sum4 <- melt(sum4,
+              measure.vars = c("imputed_steps", "original_steps"),
+              variable.name = "Condition",
+              value.name = "Steps")
+
+head(long_sum4)
+
+day_limit <- as.Date(c("2012-10-03", "2012-11-28"))
+plot3 <- ggplot(data = long_sum4, aes(x = date, y = Steps)) + 
+    geom_bar(stat = "identity", aes(fill = day_of_week)) +
+    scale_x_date(breaks = date_breaks(width = "2 day"), limits = day_limit) +
+    theme(axis.text.x = element_text(angle = 90)) +
+    facet_grid(Condition ~ .)
+
+
+plot3
+```
+
+## Investigate the differece in acitvity patterns between weedays and weekends
+```{r, out.width = '1000px', out.height = '600px'}
+sum5 <- data2 %>%
+    group_by(day_type, time) %>%
+    summarise(average_steps = mean(imputed_steps, na.rm = TRUE))
+head(sum5)
+
+plot4 <- ggplot(data = sum5, aes(x = time, y = average_steps)) + 
+    geom_line() + 
+    scale_x_datetime(breaks = date_breaks(width = "1 hour")) + 
+    theme(axis.text.x = element_text(angle = 90)) + 
+    facet_grid(day_type ~ .)
+
+plot4
+```
